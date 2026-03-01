@@ -1,4 +1,12 @@
-import type { Concept, LearningTwinResponse, StudentState } from "../types";
+import type {
+  Concept,
+  CoachChatMessage,
+  CoachChatResponse,
+  LearningTwinResponse,
+  StrategyArenaResponse,
+  StrategyPlanInput,
+  StudentState
+} from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
@@ -32,7 +40,21 @@ export const api = {
       body: JSON.stringify(body)
     }),
   getRecommendations: () =>
-    request<{ recommendations: LearningTwinResponse["recommendations"]; explanation: string }>(
+    request<{
+      recommendations: LearningTwinResponse["recommendations"];
+      coach: LearningTwinResponse["coach"];
+      explanation: string;
+    }>(
       "/recommendations"
-    )
+    ),
+  postCoachChat: (body: { message: string; history: CoachChatMessage[] }) =>
+    request<CoachChatResponse>("/coach/chat", {
+      method: "POST",
+      body: JSON.stringify(body)
+    }),
+  postStrategyArena: (body?: { days?: number; plans?: StrategyPlanInput[] }) =>
+    request<StrategyArenaResponse>("/strategy-arena", {
+      method: "POST",
+      body: JSON.stringify(body ?? {})
+    })
 };

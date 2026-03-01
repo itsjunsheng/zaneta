@@ -1,0 +1,7 @@
+{
+  "watch": ["server.ts", "routes", "models", "services", "learningModel.ts", "seed.ts"],
+  "ext": "ts,json",
+  "ignore": ["dist", "node_modules"],
+  "legacyWatch": true,
+  "exec": "ts-node --transpile-only server.ts"
+}

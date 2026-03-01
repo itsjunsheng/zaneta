@@ -18,11 +18,9 @@ export const useLearningTwin = () => {
       setLoading(true);
       setError(null);
 
-      const [concepts, studentState, learningTwin] = await Promise.all([
-        api.getConcepts(),
-        api.getStudentState(),
-        api.getLearningTwin()
-      ]);
+      const learningTwin = await api.getLearningTwin();
+      const concepts = learningTwin.conceptGraph as Concept[];
+      const studentState = learningTwin.studentState as StudentState[];
 
       setData({ concepts, studentState, learningTwin });
     } catch (fetchError) {

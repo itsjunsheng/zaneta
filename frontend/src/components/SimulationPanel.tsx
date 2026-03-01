@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { api } from "../api/client";
 
 type SimulationPanelProps = {
@@ -6,71 +6,78 @@ type SimulationPanelProps = {
 };
 
 export const SimulationPanel = ({ onSimulated }: SimulationPanelProps) => {
-  const [ratioTries, setRatioTries] = useState(0);
   const [pending, setPending] = useState(false);
 
-  const nextRatioInteraction = useMemo(() => {
-    const shouldFail = ratioTries < 3;
-    return {
-      correct: !shouldFail,
-      errorType: shouldFail ? "numerator_denominator_confusion" : undefined,
-      responseTime: shouldFail ? 14 : 9
-    };
-  }, [ratioTries]);
-
-  const submitInteraction = async (body: {
-    conceptId: string;
-    correct: boolean;
-    responseTime: number;
-    errorType?: string;
-  }) => {
+  const submitBatch = async (
+    planName: string,
+    interactions: Array<{ conceptId: string; correct: boolean; responseTime: number; errorType?: string }>
+  ) => {
     setPending(true);
     try {
-      await api.postInteraction(body);
+      for (const interaction of interactions) {
+        await api.postInteraction(interaction);
+      }
       await onSimulated();
     } finally {
       setPending(false);
     }
+
+    return planName;
   };
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-card">
-      <h3 className="text-lg font-semibold text-slate-900">Simulation Panel</h3>
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-card">
+      <h3 className="text-xl font-semibold text-slate-900">Mission Simulator</h3>
       <p className="mt-1 text-sm text-slate-500">
-        Send deterministic practice events to update the twin live.
+        Trigger realistic learning missions to stress-test how the twin reacts.
       </p>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <button
           onClick={() =>
-            void submitInteraction({
-              conceptId: "Fractions",
-              correct: true,
-              responseTime: 7
-            })
+            void submitBatch("Recovery Mission", [
+              { conceptId: "Ratios", correct: false, responseTime: 14, errorType: "numerator_denominator_confusion" },
+              { conceptId: "Ratios", correct: false, responseTime: 13, errorType: "numerator_denominator_confusion" },
+              { conceptId: "Fractions", correct: true, responseTime: 8 }
+            ])
           }
           disabled={pending}
-          className="rounded-lg bg-emerald-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-60"
+          className="rounded-lg bg-rose-600 px-3 py-3 text-sm font-medium text-white transition hover:bg-rose-500 disabled:opacity-60"
         >
-          Practice Fractions
+          Recovery Mission
         </button>
 
         <button
-          onClick={() => {
-            void submitInteraction({
-              conceptId: "Ratios",
-              ...nextRatioInteraction
-            });
-            setRatioTries((prev) => prev + 1);
-          }}
+          onClick={() =>
+            void submitBatch("Fluency Mission", [
+              { conceptId: "Fractions", correct: true, responseTime: 7 },
+              { conceptId: "Ratios", correct: true, responseTime: 8 },
+              { conceptId: "ProportionalReasoning", correct: true, responseTime: 9 }
+            ])
+          }
           disabled={pending}
-          className="rounded-lg bg-amber-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-amber-500 disabled:opacity-60"
+          className="rounded-lg bg-emerald-600 px-3 py-3 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-60"
         >
-          Practice Ratios
+          Fluency Mission
+        </button>
+
+        <button
+          onClick={() =>
+            void submitBatch("Exam Pressure", [
+              { conceptId: "AlgebraReadiness", correct: false, responseTime: 16, errorType: "symbol_manipulation" },
+              { conceptId: "ProportionalReasoning", correct: true, responseTime: 10 },
+              { conceptId: "AlgebraReadiness", correct: true, responseTime: 11 }
+            ])
+          }
+          disabled={pending}
+          className="rounded-lg bg-amber-600 px-3 py-3 text-sm font-medium text-white transition hover:bg-amber-500 disabled:opacity-60"
+        >
+          Exam Pressure
         </button>
       </div>
+
       <p className="mt-3 text-xs text-slate-500">
-        First 3 ratio attempts are incorrect to demonstrate misconception detection.
+        Each mission sends multiple interactions so recommendation shifts are visible immediately.
       </p>
     </div>
   );
