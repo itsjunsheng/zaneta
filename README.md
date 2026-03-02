@@ -1,131 +1,169 @@
-# Learning Twin 2.0 (Hackathon MVP)
+# Digital Learning Twin
 
-Learning Twin is now a **Predictive Study Copilot**: it not only tracks mastery, but also simulates competing study strategies and delivers mission-style coaching.
+## 1. Project Overview
+Digital Learning Twin is a full-stack web app that analyzes student performance data from an uploaded Excel file and turns it into actionable learning insights.
 
-## Features
+It solves a common problem in education: raw test scores are hard to interpret for planning. The system converts assessment history into three core learning metrics and then generates goal-based study recommendations.
 
-- Bayesian Knowledge Tracing-style mastery updates
-- Exponential forgetting/retention modeling
-- Effective mastery (`mastery * retention`) tracking
-- Misconception detection from repeated error types
-- Recommendation engine for top next concepts
-- OpenAI-backed interactive AI coach chat (with deterministic fallback)
-- **Strategy Arena**: A/B/C study-plan duel with projected readiness trajectories
-- **Learning Persona**: momentum, resilience, efficiency fingerprint
-- **Mission Simulator**: batch interaction scenarios (recovery, fluency, exam pressure)
-- Concept dependency graph with mastery/risk encoding
-- What-changed timeline (delta after each interaction)
-- Intervention mode plans for flagged misconceptions
-- Confidence/uncertainty per concept
-- 7-day readiness projection metric
+### Main Objectives
+- Convert spreadsheet assessment data into meaningful learning analytics.
+- Track student progress using clear metrics:
+  - Accuracy Over Time
+  - Time to Mastery
+  - Retention Ability
+- Let users set a target goal (score, timeline, weekly study hours).
+- Generate personalized study habits using OpenAI (with fallback logic if AI is unavailable).
 
-## Tech Stack
+## 2. Technical Details
+### Tech Stack
+- Frontend: React + TypeScript + Vite + TailwindCSS + Chart.js (`react-chartjs-2`)
+- Backend: Node.js + Express + TypeScript
+- File parsing: `xlsx`
+- Upload handling: `multer`
+- AI integration: OpenAI Node SDK
+- Storage: In-memory profile store (no database)
 
-- Frontend: React + Vite + TypeScript + Tailwind + Recharts + React Flow
-- Backend: Node.js + Express + TypeScript + in-memory store
+### Architecture
+- `frontend` handles file upload UI, visualization, goal setting, and recommendation rendering.
+- `backend` handles parsing, analytics computation, AI generation, and API responses.
 
-## Project Structure
+### Key Backend Components
+- `services/excelParser.ts`
+  - Parses `.xlsx/.xls` rows with flexible column aliases.
+  - Supports columns like `Grade`, `Difficulty`, `Topic`, `Timestamp`.
+- `services/learningAnalyzer.ts`
+  - Computes all analytics and topic insights.
+- `services/openaiCoach.ts`
+  - Calls OpenAI to produce recommendation cards.
+  - Returns `source: ai | fallback` so frontend knows if AI was actually used.
+- `services/studyPlanner.ts`
+  - Deterministic fallback recommendation engine.
+- `routes/api.ts`
+  - Exposes upload/profile/recommendation endpoints.
 
-```text
-/backend
-  server.ts
-  learningModel.ts
-  seed.ts
-  /routes
-    api.ts
-  /models
-    store.ts
-    types.ts
+### Metric Logic (Current Implementation)
+- Accuracy Over Time:
+  - Monthly average performance trend from assessment history.
+  - Topic score reflects sustained performance (mean with volatility penalty).
+- Time to Mastery:
+  - Days from first attempt in a topic until mastery threshold is reached.
+  - Mastery threshold currently uses hard-topic performance rule in analyzer logic.
+- Retention Ability:
+  - Evaluated using same-topic attempts separated by 30+ days.
+  - If score is maintained/improved after long gaps -> higher retention.
+  - If score drops after long gaps -> lower retention.
 
-/frontend
-  /src
-    /api
-    /components
-    /hooks
-    /pages
-```
+### Workflow
+1. User uploads Excel file.
+2. Backend parses rows and computes analytics.
+3. Frontend shows charts + topic table.
+4. User sets goal and clicks generate.
+5. Backend calls OpenAI for recommendations.
+6. If OpenAI fails/unavailable, fallback recommendations are returned.
 
-## Seeded Concept Graph
+## 3. Setup and Installation Instructions
+### Prerequisites
+- Node.js 20+ (22.12+ recommended for latest Vite compatibility)
+- npm
 
-- Fractions -> Ratios -> Proportional Reasoning -> Algebra Readiness
-
-Initial mastery:
-
-- Fractions: 0.8
-- Ratios: 0.4
-- Proportional Reasoning: 0.2
-- Algebra Readiness: 0.1
-
-## API Endpoints
-
-- `GET /concepts`
-- `GET /student-state`
-- `POST /interactions`
-- `GET /recommendations`
-- `GET /learning-twin`
-- `POST /strategy-arena`
-- `POST /coach/chat`
-- `GET /health`
-
-Example interaction:
-
-```json
-{
-  "conceptId": "Ratios",
-  "correct": false,
-  "responseTime": 14,
-  "errorType": "numerator_denominator_confusion"
-}
-```
-
-## Run Locally
-
-### 1) Start backend
-
+### Backend Setup
 ```bash
 cd backend
 npm install
-# copy env template and set your key
 copy .env.example .env
+```
+
+Set env values in `backend/.env`:
+```env
+PORT=4000
+OPENAI_API_KEY=your_openai_key_here
+```
+
+Run backend:
+```bash
 npm run dev
 ```
 
-Backend default URL: `http://localhost:4000`
-
-Backend env vars:
-
-- `OPENAI_API_KEY`: optional, enables live LLM coach
-- `OPENAI_MODEL`: optional, defaults to `gpt-4o-mini`
-- `PORT`: optional, defaults to `4000`
-
-### 2) Start frontend
-
+### Frontend Setup
 ```bash
 cd frontend
 npm install
-npm run dev
+copy .env.example .env
 ```
 
-Frontend default URL: `http://localhost:5173`
-
-If needed, set a custom backend URL:
-
-```bash
-# frontend/.env
+Set frontend env in `frontend/.env`:
+```env
 VITE_API_BASE_URL=http://localhost:4000
 ```
 
-## Demo Flow
+Run frontend:
+```bash
+npm run dev
+```
 
-1. Open Mission Control and show the **Learning Persona** card.
-2. Run **Strategy Arena** and explain why the winning plan beats alternatives.
-3. Trigger **Mission Simulator** scenarios and show timeline/recommendation shifts.
-4. Ask the **AI Coach chat** tactical follow-up questions.
-5. Highlight interventions and forgetting-risk signals as actionable outputs.
+### Build Commands
+```bash
+# backend
+cd backend
+npm run build
 
-## Notes
+# frontend
+cd frontend
+npm run build
+```
 
-- This MVP intentionally favors deterministic, explainable logic over model complexity.
-- No authentication is included.
-- Data is reset on backend restart (in-memory store).
-- If OpenAI is unavailable or key is missing, AI Coach automatically falls back to template logic.
+## 4. Usage Instructions
+1. Open the frontend app.
+2. Upload an Excel file containing assessment records.
+3. Review dashboard outputs:
+   - KPI cards
+   - Accuracy Over Time chart
+   - Time to Mastery chart
+   - Topic Insights table
+   - Retention Ability radar chart
+4. Set goal inputs:
+   - Target Score
+   - Time Horizon (months)
+   - Weekly Study Hours
+5. Click **Generate Recommendations**.
+6. Read generated recommendation cards and check source badge:
+   - `Source: OpenAI model` means AI-generated.
+   - `Source: Fallback rules` means fallback logic was used.
+
+### Excel Input Notes
+The parser accepts flexible header names. Typical columns:
+- Topic / Subject / Paper
+- Grade / Score
+- Difficulty (`Easy`, `Medium`, `Hard`)
+- Timestamp / Date
+
+## 5. Challenges Faced
+- **Messy spreadsheet formats:**
+  - Different users name columns differently.
+  - Solved with alias-based column parsing and safe defaults.
+- **Interpretable metric definitions:**
+  - Needed formulas that match education meaning, not just raw trend math.
+  - Solved with explicit topic/time-gap-based metric logic.
+- **AI reliability in hackathon environments:**
+  - API quota or key issues can break generation.
+  - Solved with fallback engine + source visibility in UI.
+- **Recommendation flow clarity:**
+  - Users need goal-first generation behavior.
+  - Solved by separating upload analysis from recommendation generation.
+
+## 6. Future Improvements or Features
+- Add user authentication and profile persistence (database-backed).
+- Add per-student history snapshots and versioned uploads.
+- Add richer explainability panel for each metric formula.
+- Add confidence scores and uncertainty bands for recommendations.
+- Add export (PDF/CSV) for teacher/student reports.
+- Add cohort benchmarking (compare against class averages).
+
+## 7. Credits and References
+- OpenAI API and SDK documentation
+- Chart.js and `react-chartjs-2` documentation
+- Express and Vite official docs
+- XLSX (`sheetjs`) documentation
+
+## 8. Conclusion
+Digital Learning Twin transforms raw assessment spreadsheets into clear, interpretable learning analytics and goal-driven study guidance. It demonstrates a practical AI-assisted workflow for personalized education planning, with robust fallback behavior for real-world reliability during hackathon demos.

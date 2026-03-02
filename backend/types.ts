@@ -1,3 +1,12 @@
+export type RawLearningEvent = {
+  topic: string;
+  difficulty: number;
+  score: number;
+  maxScore: number;
+  durationMinutes: number;
+  assessedAt: string;
+};
+
 export type TopicInsight = {
   topic: string;
   attempts: number;
@@ -44,6 +53,7 @@ export type StudentProfile = {
   id: string;
   studentName: string;
   uploadedAt: string;
+  events: RawLearningEvent[];
   insights: LearningInsights;
   latestGoal?: LearningGoal;
   recommendations: StudyRecommendation[];

@@ -1,13 +1,15 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700;800&display=swap');
+@import 'tailwindcss';
 
-body {
-  margin: 0;
-  min-width: 320px;
-  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+:root {
+  font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
 }
 
 * {
   box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
 }

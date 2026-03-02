@@ -1,162 +1,88 @@
-import OpenAI from "openai";
-import { Concept, CoachResponse, InterventionPlan, MisconceptionFlag, ProjectionSummary, Recommendation, StudentState } from "../models/types";
-import { generateExplanation } from "../learningModel";
+import OpenAI from 'openai';
+import { LearningGoal, LearningInsights, StudyRecommendation } from '../types';
 
-type CoachInput = {
-  studentStates: StudentState[];
-  recommendations: Recommendation[];
-  misconceptions: MisconceptionFlag[];
-  concepts: Concept[];
-  interventions: InterventionPlan[];
-  projection: ProjectionSummary;
-};
-
-type ChatTurn = {
-  role: "user" | "assistant";
-  content: string;
-};
-
-type CoachChatInput = CoachInput & {
-  message: string;
-  history?: ChatTurn[];
-};
-
-const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
-const apiKey = process.env.OPENAI_API_KEY;
-
-const client = apiKey ? new OpenAI({ apiKey }) : null;
-
-export const generateTemplateCoachResponse = (input: CoachInput): CoachResponse => {
-  const message = generateExplanation(
-    input.studentStates,
-    input.recommendations,
-    input.misconceptions,
-    input.concepts
-  );
-
-  const bullets = [
-    `Next concept: ${input.recommendations[0]?.conceptName ?? "continue practice"}.`,
-    `7-day readiness lift estimate: ${(input.projection.expectedImprovement * 100).toFixed(1)} points.`,
-    input.misconceptions[0]
-      ? `Address ${input.misconceptions[0].errorType.replace(/_/g, " ")} explicitly in drills.`
-      : "No strong misconception pattern yet; keep tracking errors."
-  ];
-
-  return {
-    message,
-    bullets,
-    source: "template"
-  };
-};
-
-export const generateCoachResponse = async (input: CoachInput): Promise<CoachResponse> => {
-  if (!client) {
-    return generateTemplateCoachResponse(input);
+const getClient = (): OpenAI | null => {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return null;
   }
+
+  return new OpenAI({ apiKey });
+};
+
+const safeParseRecommendations = (text: string): StudyRecommendation[] => {
+  const direct = (() => {
+    try {
+      return JSON.parse(text) as StudyRecommendation[];
+    } catch {
+      return null;
+    }
+  })();
+
+  const parsed = Array.isArray(direct) ? direct : (() => {
+    const match = text.match(/\[[\s\S]*\]/);
+    if (!match) {
+      return null;
+    }
+    try {
+      return JSON.parse(match[0]) as StudyRecommendation[];
+    } catch {
+      return null;
+    }
+  })();
+
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+
+  return parsed
+    .filter((item) => item && typeof item.title === 'string' && typeof item.why === 'string' && typeof item.action === 'string')
+    .slice(0, 6);
+};
+
+export const generateAIRecommendations = async (
+  insights: LearningInsights,
+  goal: LearningGoal,
+  fallback: StudyRecommendation[]
+): Promise<{ recommendations: StudyRecommendation[]; source: 'ai' | 'fallback' }> => {
+  const client = getClient();
+  if (!client) {
+    return { recommendations: fallback, source: 'fallback' };
+  }
+
+  const prompt = `
+You are an elite personalized learning strategist.
+Given the learner analytics and target goal, produce exactly 4 practical, specific recommendations.
+Make the recommendations sound tailored, not generic. Mention topics, pacing, cadence, and checkpoints.
+Respond only as valid JSON array with objects: {"title":"...","why":"...","action":"..."}.
+
+Learner analytics:
+${JSON.stringify(insights)}
+
+Goal:
+${JSON.stringify(goal)}
+`;
 
   try {
-    const promptPayload = {
-      recommendations: input.recommendations,
-      misconceptions: input.misconceptions,
-      projection: input.projection,
-      studentStates: input.studentStates.map((state) => ({
-        conceptId: state.conceptId,
-        mastery: Number(state.mastery.toFixed(3)),
-        attempts: state.attempts,
-        correct: state.correct
-      })),
-      interventions: input.interventions
-    };
-
-    const prompt = [
-      "You are an instructional coach.",
-      "Return strict JSON with keys: message (string), bullets (array of exactly 3 short strings).",
-      "Keep concise and action-oriented.",
-      JSON.stringify(promptPayload)
-    ].join("\n");
-
     const response = await client.responses.create({
-      model,
-      temperature: 0.3,
-      max_output_tokens: 260,
-      input: prompt
+      model: 'gpt-4.1-mini',
+      input: prompt,
+      temperature: 0.7,
     });
 
-    const content = response.output_text?.trim();
-    if (!content) {
-      return generateTemplateCoachResponse(input);
+    const text = response.output_text?.trim();
+    if (!text) {
+      return { recommendations: fallback, source: 'fallback' };
     }
 
-    const parsed = JSON.parse(content) as { message?: string; bullets?: string[] };
-    if (!parsed.message || !Array.isArray(parsed.bullets)) {
-      return generateTemplateCoachResponse(input);
+    const sanitized = safeParseRecommendations(text);
+
+    if (sanitized.length > 0) {
+      return { recommendations: sanitized.slice(0, 4), source: 'ai' };
     }
 
-    return {
-      message: parsed.message,
-      bullets: parsed.bullets.slice(0, 3),
-      source: "openai"
-    };
+    return { recommendations: fallback, source: 'fallback' };
   } catch {
-    return generateTemplateCoachResponse(input);
-  }
-};
-
-const fallbackChatResponse = (input: CoachChatInput): { reply: string; source: "template" | "openai" } => {
-  const base = generateTemplateCoachResponse(input);
-  return {
-    reply: `${base.message} Next action: ${base.bullets[0]} You asked: "${input.message}"`,
-    source: "template"
-  };
-};
-
-export const generateCoachChatResponse = async (
-  input: CoachChatInput
-): Promise<{ reply: string; source: "template" | "openai" }> => {
-  if (!client) {
-    return fallbackChatResponse(input);
-  }
-
-  try {
-    const promptPayload = {
-      recommendations: input.recommendations,
-      misconceptions: input.misconceptions,
-      projection: input.projection,
-      interventions: input.interventions,
-      studentStates: input.studentStates.map((state) => ({
-        conceptId: state.conceptId,
-        mastery: Number(state.mastery.toFixed(3)),
-        attempts: state.attempts,
-        correct: state.correct
-      })),
-      history: (input.history ?? []).slice(-8),
-      message: input.message
-    };
-
-    const prompt = [
-      "You are an interactive instructional coach for a student dashboard.",
-      "Respond in 2-4 concise sentences with practical steps.",
-      "Use the provided learner context and keep answers specific.",
-      JSON.stringify(promptPayload)
-    ].join("\n");
-
-    const response = await client.responses.create({
-      model,
-      temperature: 0.4,
-      max_output_tokens: 260,
-      input: prompt
-    });
-
-    const content = response.output_text?.trim();
-    if (!content) {
-      return fallbackChatResponse(input);
-    }
-
-    return {
-      reply: content,
-      source: "openai"
-    };
-  } catch {
-    return fallbackChatResponse(input);
+    return { recommendations: fallback, source: 'fallback' };
   }
 };
