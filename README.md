@@ -73,9 +73,10 @@ Set `backend/.env`:
 ```env
 PORT=4000
 OPENAI_API_KEY=your_openai_key_here
-SUPABASE_URL=https://<project-ref>.supabase.co
-SUPABASE_ANON_KEY=your_supabase_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+SUPABASE_URL=https://jqwpnrhiajzzipkgmpzs.supabase.co
+SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impxd3BucmhpYWp6emlwa2dtcHpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0ODI0NTQsImV4cCI6MjA4ODA1ODQ1NH0.ARkgMumnV9ItkL2UMzeqBLsLWrk7Tk3PBB_ujOL-Q1w
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impxd3BucmhpYWp6emlwa2dtcHpzIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjQ4MjQ1NCwiZXhwIjoyMDg4MDU4NDU0fQ.kFQt8ASLqC1zsEPbOFJSBfabwJiDniC3j50YHZVpyI8
+
 ```
 
 Run backend:
@@ -93,8 +94,8 @@ copy .env.example .env
 Set `frontend/.env`:
 ```env
 VITE_API_BASE_URL=http://localhost:4000
-VITE_SUPABASE_URL=https://<project-ref>.supabase.co
-VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+VITE_SUPABASE_URL=https://jqwpnrhiajzzipkgmpzs.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impxd3BucmhpYWp6emlwa2dtcHpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0ODI0NTQsImV4cCI6MjA4ODA1ODQ1NH0.ARkgMumnV9ItkL2UMzeqBLsLWrk7Tk3PBB_ujOL-Q1w
 ```
 
 Run frontend:
