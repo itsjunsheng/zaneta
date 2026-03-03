@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { Router } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
+import { requireAuth } from '../middleware/auth';
 import { parseLearningWorkbook } from '../services/excelParser';
 import { analyzeLearning } from '../services/learningAnalyzer';
 import { generateAIRecommendations } from '../services/openaiCoach';
@@ -25,23 +26,27 @@ const defaultGoal: LearningGoal = {
 
 export const apiRouter = Router();
 
-apiRouter.post('/upload', upload.single('file'), async (req, res) => {
+apiRouter.post('/upload', requireAuth, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'Excel file is required in form field "file".' });
     }
 
+    const userId = String(res.locals.userId ?? '');
+    const existingProfile = await studentStore.getByUserId(userId);
     const { studentName, events } = parseLearningWorkbook(req.file.buffer);
     const insights = analyzeLearning(events);
+    const persistedGoal = existingProfile?.latestGoal ?? defaultGoal;
 
     const profile = {
-      id: randomUUID(),
+      id: existingProfile?.id ?? randomUUID(),
+      userId,
       studentName,
       uploadedAt: new Date().toISOString(),
       events,
       insights,
-      latestGoal: defaultGoal,
-      recommendations: buildRuleBasedRecommendations(insights, defaultGoal),
+      latestGoal: persistedGoal,
+      recommendations: buildRuleBasedRecommendations(insights, persistedGoal),
     };
 
     await studentStore.save(profile);
@@ -56,23 +61,23 @@ apiRouter.post('/upload', upload.single('file'), async (req, res) => {
   }
 });
 
-apiRouter.get('/student/profile', async (req, res) => {
-  const id = String(req.query.studentId ?? '');
-  const profile = id ? await studentStore.get(id) : await studentStore.latest();
+apiRouter.get('/student/profile', requireAuth, async (_req, res) => {
+  const userId = String(res.locals.userId ?? '');
+  const profile = await studentStore.getByUserId(userId);
 
   if (!profile) {
-    return res.status(404).json({ error: 'No student profile found. Upload a workbook first.' });
+    return res.status(404).json({ error: 'No student profile found for this account.' });
   }
 
   return res.json(profile);
 });
 
-apiRouter.get('/recommendations', async (req, res) => {
-  const id = String(req.query.studentId ?? '');
-  const profile = id ? await studentStore.get(id) : await studentStore.latest();
+apiRouter.get('/recommendations', requireAuth, async (req, res) => {
+  const userId = String(res.locals.userId ?? '');
+  const profile = await studentStore.getByUserId(userId);
 
   if (!profile) {
-    return res.status(404).json({ error: 'No student profile found. Upload a workbook first.' });
+    return res.status(404).json({ error: 'No student profile found for this account.' });
   }
 
   const goalResult = goalSchema.safeParse({

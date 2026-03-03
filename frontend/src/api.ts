@@ -5,31 +5,28 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000',
 });
 
-export const uploadWorkbook = async (file: File): Promise<StudentProfile> => {
-  const formData = new FormData();
-  formData.append('file', file);
+const authHeaders = (accessToken: string): Record<string, string> => ({
+  Authorization: `Bearer ${accessToken}`,
+});
 
-  const response = await api.post<{ profile: StudentProfile }>('/upload', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
+export const fetchProfile = async (accessToken: string): Promise<StudentProfile> => {
+  const response = await api.get<StudentProfile>('/student/profile', {
+    headers: authHeaders(accessToken),
   });
-
-  return response.data.profile;
-};
-
-export const fetchProfile = async (studentId: string): Promise<StudentProfile> => {
-  const response = await api.get<StudentProfile>('/student/profile', { params: { studentId } });
   return response.data;
 };
 
 export const fetchRecommendations = async (
-  studentId: string,
+  accessToken: string,
   goal: LearningGoal
 ): Promise<{ recommendations: StudyRecommendation[]; goal: LearningGoal; source: 'ai' | 'fallback' }> => {
-  const response = await api.get<{ recommendations: StudyRecommendation[]; goal: LearningGoal; source: 'ai' | 'fallback' }>('/recommendations', {
+  const response = await api.get<{
+    recommendations: StudyRecommendation[];
+    goal: LearningGoal;
+    source: 'ai' | 'fallback';
+  }>('/recommendations', {
+    headers: authHeaders(accessToken),
     params: {
-      studentId,
       targetScore: goal.targetScore,
       targetMonths: goal.targetMonths,
       weeklyStudyHours: goal.weeklyStudyHours,

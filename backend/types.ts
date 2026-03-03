@@ -51,6 +51,7 @@ export type StudyRecommendation = {
 
 export type StudentProfile = {
   id: string;
+  userId: string;
   studentName: string;
   uploadedAt: string;
   events: RawLearningEvent[];

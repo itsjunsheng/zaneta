@@ -1,3 +1,5 @@
+import axios from 'axios';
+import type { Session } from '@supabase/supabase-js';
 import {
   BarElement,
   CategoryScale,
@@ -10,9 +12,11 @@ import {
   RadialLinearScale,
   Tooltip,
 } from 'chart.js';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { FormEvent } from 'react';
 import { Bar, Line, Radar } from 'react-chartjs-2';
-import { fetchRecommendations, uploadWorkbook } from './api';
+import { fetchProfile, fetchRecommendations } from './api';
+import { supabase, supabaseConfigError } from './supabase';
 import type { LearningGoal, StudentProfile, StudyRecommendation } from './types';
 
 ChartJS.register(
@@ -46,16 +50,131 @@ const averageMasteryDays = (topics: StudentProfile['insights']['topicInsights'])
   return `${avg.toFixed(1)} days`;
 };
 
+const errorMessageOf = (value: unknown, fallback: string): string => {
+  if (typeof value === 'object' && value !== null && 'message' in value) {
+    const message = (value as { message?: unknown }).message;
+    if (typeof message === 'string' && message.trim().length > 0) {
+      return message;
+    }
+  }
+
+  return fallback;
+};
+
 function App() {
-  const [file, setFile] = useState<File | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [profile, setProfile] = useState<StudentProfile | null>(null);
   const [goal, setGoal] = useState<LearningGoal>(initialGoal);
   const [recommendations, setRecommendations] = useState<StudyRecommendation[]>([]);
   const [hasGeneratedRecommendations, setHasGeneratedRecommendations] = useState(false);
   const [recommendationSource, setRecommendationSource] = useState<'ai' | 'fallback' | null>(null);
-  const [loadingUpload, setLoadingUpload] = useState(false);
+  const [loadingSession, setLoadingSession] = useState(true);
+  const [loadingAuth, setLoadingAuth] = useState(false);
+  const [loadingProfile, setLoadingProfile] = useState(false);
   const [loadingRecommendations, setLoadingRecommendations] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const supabaseClient = supabase;
+    if (!supabaseClient) {
+      setError(supabaseConfigError ?? 'Supabase client is not configured.');
+      setLoadingSession(false);
+      return;
+    }
+
+    let active = true;
+
+    const bootstrapSession = async (): Promise<void> => {
+      const { data, error: sessionError } = await supabaseClient.auth.getSession();
+      if (!active) {
+        return;
+      }
+
+      if (sessionError) {
+        setError(sessionError.message);
+      }
+
+      setSession(data.session ?? null);
+      setLoadingSession(false);
+    };
+
+    void bootstrapSession();
+
+    const {
+      data: { subscription },
+    } = supabaseClient.auth.onAuthStateChange((_event: string, nextSession: Session | null) => {
+      setSession(nextSession);
+      if (!nextSession) {
+        setProfile(null);
+        setRecommendations([]);
+        setHasGeneratedRecommendations(false);
+        setRecommendationSource(null);
+        setGoal(initialGoal);
+      }
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    const accessToken = session?.access_token;
+    if (!accessToken) {
+      setLoadingProfile(false);
+      return;
+    }
+
+    let active = true;
+
+    const loadProfile = async (): Promise<void> => {
+      try {
+        setLoadingProfile(true);
+        setError(null);
+
+        const fetched = await fetchProfile(accessToken);
+        if (!active) {
+          return;
+        }
+
+        setProfile(fetched);
+        setGoal(fetched.latestGoal ?? initialGoal);
+        setRecommendations([]);
+        setHasGeneratedRecommendations(false);
+        setRecommendationSource(null);
+      } catch (profileError) {
+        if (!active) {
+          return;
+        }
+
+        if (axios.isAxiosError(profileError) && profileError.response?.status === 404) {
+          setProfile(null);
+          setRecommendations([]);
+          setHasGeneratedRecommendations(false);
+          setRecommendationSource(null);
+          return;
+        }
+
+        setError((profileError as Error).message ?? 'Failed to load dashboard profile.');
+      } finally {
+        if (active) {
+          setLoadingProfile(false);
+        }
+      }
+    };
+
+    void loadProfile();
+
+    return () => {
+      active = false;
+    };
+  }, [session?.access_token]);
+
   const toPercent = (value: number): string => `${(value * 100).toFixed(0)}%`;
   const scoreTone = (value: number): string => {
     if (value >= 0.85) {
@@ -67,45 +186,91 @@ function App() {
     return 'bg-rose-50 text-rose-700 ring-rose-100';
   };
 
-  const upload = async (): Promise<void> => {
-    if (!file) {
-      setError('Please select an Excel file first.');
+  const submitAuth = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    const supabaseClient = supabase;
+    if (!supabaseClient) {
+      setError(supabaseConfigError ?? 'Supabase client is not configured.');
+      return;
+    }
+    if (!email || !password) {
+      setError('Email and password are required.');
       return;
     }
 
     try {
-      setLoadingUpload(true);
+      setLoadingAuth(true);
       setError(null);
-      const uploaded = await uploadWorkbook(file);
-      setProfile(uploaded);
-      setRecommendations([]);
-      setHasGeneratedRecommendations(false);
-      setRecommendationSource(null);
-      if (uploaded.latestGoal) {
-        setGoal(uploaded.latestGoal);
+      setAuthMessage(null);
+
+      if (authMode === 'login') {
+        const { error: signInError } = await supabaseClient.auth.signInWithPassword({ email, password });
+        if (signInError) {
+          throw signInError;
+        }
+      } else {
+        const { data, error: signUpError } = await supabaseClient.auth.signUp({ email, password });
+        if (signUpError) {
+          throw signUpError;
+        }
+
+        if (!data.session) {
+          setAuthMessage('Account created. Check your email for verification before signing in.');
+        } else {
+          setAuthMessage('Account created. Loading dashboard...');
+        }
       }
-    } catch (uploadError) {
-      setError((uploadError as Error).message ?? 'Upload failed.');
+    } catch (authError) {
+      setError(errorMessageOf(authError, 'Authentication failed.'));
     } finally {
-      setLoadingUpload(false);
+      setLoadingAuth(false);
+    }
+  };
+
+  const signOut = async (): Promise<void> => {
+    const supabaseClient = supabase;
+    if (!supabaseClient) {
+      setError(supabaseConfigError ?? 'Supabase client is not configured.');
+      return;
+    }
+    setLoadingAuth(true);
+    setError(null);
+    setAuthMessage(null);
+
+    try {
+      const { error: signOutError } = await supabaseClient.auth.signOut();
+      if (signOutError) {
+        setError(signOutError.message);
+      }
+    } finally {
+      setLoadingAuth(false);
     }
   };
 
   const generateRecommendations = async (): Promise<void> => {
-    if (!profile) {
-      setError('Upload and analyze a profile first.');
+    if (!profile || !session?.access_token) {
+      setError('Log in and load a profile before generating a report.');
       return;
     }
 
     try {
       setLoadingRecommendations(true);
       setError(null);
-      const result = await fetchRecommendations(profile.id, goal);
+      const result = await fetchRecommendations(session.access_token, goal);
       setRecommendations(result.recommendations);
       setRecommendationSource(result.source);
       setHasGeneratedRecommendations(true);
+      setProfile((previous) =>
+        previous
+          ? {
+              ...previous,
+              latestGoal: result.goal,
+              recommendations: result.recommendations,
+            }
+          : previous
+      );
     } catch (recommendationError) {
-      setError((recommendationError as Error).message ?? 'Recommendation generation failed.');
+      setError((recommendationError as Error).message ?? 'Report generation failed.');
     } finally {
       setLoadingRecommendations(false);
     }
@@ -180,32 +345,86 @@ function App() {
             Student Cognitive Modeling Dashboard
           </h1>
           <p className="mt-4 max-w-3xl text-base leading-relaxed text-slate-600 md:text-lg">
-            Upload a student Excel profile, map learning behavior into a digital brain, and generate goal-aware study
-            recommendations.
+            Sign in to load your learning metrics instantly. Generate a goal-aware report only when you need it.
           </p>
 
-          <div className="mt-7 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-3 md:grid-cols-[1fr_auto] md:gap-4 md:p-4">
-            <label className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-teal-300 hover:shadow-sm">
-              <span className="truncate">{file?.name ?? 'Choose Excel file (.xlsx, .xls)'}</span>
-              <span className="ml-3 rounded-lg bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">Browse</span>
-              <input
-                type="file"
-                accept=".xlsx,.xls"
-                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-                className="hidden"
-              />
-            </label>
-            <button
-              type="button"
-              onClick={upload}
-              disabled={loadingUpload}
-              className="rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-            >
-              {loadingUpload ? 'Analyzing...' : 'Upload and Analyze'}
-            </button>
-          </div>
+          {!session && (
+            <form onSubmit={submitAuth} className="mt-7 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 md:grid-cols-2">
+              <label className="text-sm font-medium text-slate-700">
+                Email
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                  placeholder="student@example.com"
+                  required
+                />
+              </label>
+              <label className="text-sm font-medium text-slate-700">
+                Password
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                  placeholder="••••••••"
+                  required
+                />
+              </label>
+
+              <div className="md:col-span-2 flex flex-wrap gap-3">
+                <button
+                  type="submit"
+                  disabled={loadingAuth || loadingSession}
+                  className="rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                >
+                  {loadingAuth ? 'Please wait...' : authMode === 'login' ? 'Login' : 'Create Account'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAuthMode((mode) => (mode === 'login' ? 'signup' : 'login'))}
+                  disabled={loadingAuth || loadingSession}
+                  className="rounded-xl border border-slate-300 bg-white px-6 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {authMode === 'login' ? 'Need an account?' : 'Already have an account?'}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {session && (
+            <div className="mt-7 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Signed in as</p>
+                <p className="text-sm font-semibold text-slate-800">{session.user.email}</p>
+              </div>
+              <button
+                type="button"
+                onClick={signOut}
+                disabled={loadingAuth}
+                className="rounded-xl border border-slate-300 bg-white px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Sign out
+              </button>
+            </div>
+          )}
+
+          {authMessage && <p className="mt-3 text-sm font-medium text-teal-700">{authMessage}</p>}
           {error && <p className="mt-3 text-sm font-medium text-red-600">{error}</p>}
         </section>
+
+        {session && loadingProfile && (
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm">
+            Loading student dashboard...
+          </section>
+        )}
+
+        {session && !loadingProfile && !profile && (
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm">
+            No stored stats were found for this account yet. Add profile data to Supabase first, then refresh.
+          </section>
+        )}
 
         {profile && (
           <>
@@ -332,8 +551,8 @@ function App() {
             </section>
 
             <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h2 className="text-xl font-bold text-slate-900">Goal Setting and Study Plan</h2>
-              <p className="mt-1 text-sm text-slate-500">Set targets and generate personalized action plans.</p>
+              <h2 className="text-xl font-bold text-slate-900">Goal Setting and Study Report</h2>
+              <p className="mt-1 text-sm text-slate-500">Set targets and generate a personalized report on demand.</p>
               <div className="mt-5 grid gap-4 md:grid-cols-3">
                 <label className="text-sm font-medium text-slate-700">
                   Target Score
@@ -376,12 +595,12 @@ function App() {
                 disabled={loadingRecommendations}
                 className="mt-5 rounded-xl bg-gradient-to-r from-teal-700 to-cyan-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:from-teal-600 hover:to-cyan-600 disabled:cursor-not-allowed disabled:from-teal-300 disabled:to-cyan-300"
               >
-                {loadingRecommendations ? 'Generating...' : 'Generate Recommendations'}
+                {loadingRecommendations ? 'Generating...' : 'Generate Report'}
               </button>
 
               {!hasGeneratedRecommendations && (
                 <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                  Set your goal values, then click <span className="font-semibold text-slate-900">Generate Recommendations</span> to call the AI coach.
+                  Set your goal values, then click <span className="font-semibold text-slate-900">Generate Report</span> to call the AI coach.
                 </div>
               )}
 
@@ -391,16 +610,16 @@ function App() {
                     {recommendationSource === 'ai' ? 'Source: OpenAI model' : 'Source: Fallback rules'}
                   </div>
                   <div className="grid gap-3 md:grid-cols-2">
-                  {recommendations.map((recommendation) => (
-                    <article
-                      key={recommendation.title}
-                      className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 shadow-sm"
-                    >
-                      <h3 className="font-semibold text-slate-900">{recommendation.title}</h3>
-                      <p className="mt-1 text-sm text-slate-600">{recommendation.why}</p>
-                      <p className="mt-2 text-sm font-medium text-teal-700">{recommendation.action}</p>
-                    </article>
-                  ))}
+                    {recommendations.map((recommendation) => (
+                      <article
+                        key={recommendation.title}
+                        className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 shadow-sm"
+                      >
+                        <h3 className="font-semibold text-slate-900">{recommendation.title}</h3>
+                        <p className="mt-1 text-sm text-slate-600">{recommendation.why}</p>
+                        <p className="mt-2 text-sm font-medium text-teal-700">{recommendation.action}</p>
+                      </article>
+                    ))}
                   </div>
                 </div>
               )}
